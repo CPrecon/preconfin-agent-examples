@@ -5,7 +5,11 @@ declare const process: {
 
 type JsonObject = Record<string, unknown>;
 
-const baseUrl = (process.env.PRECONFIN_BASE_URL ?? 'https://api.preconfin.com/api').replace(/\/$/, '');
+const baseUrl = (
+  process.env.VITE_PRECONFIN_BASE_URL ??
+  process.env.PRECONFIN_BASE_URL ??
+  'https://api.preconfin.com/api'
+).replace(/\/$/, '');
 const agentKey = process.env.PRECONFIN_AGENT_KEY;
 
 if (!agentKey) {

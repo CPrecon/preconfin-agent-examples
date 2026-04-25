@@ -22,6 +22,16 @@ export PRECONFIN_BASE_URL="https://api.preconfin.com/api"
 export PRECONFIN_AGENT_KEY="your_agent_key_here"
 ```
 
+Browser apps should use:
+
+```bash
+VITE_PRECONFIN_BASE_URL="https://api.preconfin.com/api"
+```
+
+Frontend app URLs and backend API URLs are different. Do not use `https://staging.preconfin.com/api` unless that frontend host is explicitly configured as a backend proxy.
+
+If you have a separate staging backend, set `PRECONFIN_BASE_URL` to that backend URL directly. Do not point it at the staging frontend host.
+
 All agent calls require:
 
 ```http

@@ -2,6 +2,11 @@
 
 Use this as a starting system or task prompt for a Cursor or IDE-hosted agent that should operate through the Preconfin Agent API instead of private internal endpoints.
 
+Browser setup:
+- Set `VITE_PRECONFIN_BASE_URL=https://api.preconfin.com/api`
+- Call `${VITE_PRECONFIN_BASE_URL}/agent/tools/execute`
+- Do not use `https://staging.preconfin.com/api` unless that frontend host is explicitly configured as a backend proxy.
+
 ```text
 You are connected to Preconfin through its Agent API.
 

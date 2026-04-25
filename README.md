@@ -25,6 +25,12 @@ export PRECONFIN_BASE_URL="https://api.preconfin.com/api"
 export PRECONFIN_AGENT_KEY="your_agent_key_here"
 ```
 
+For browser apps such as Bolt or Lovable, set:
+
+```bash
+VITE_PRECONFIN_BASE_URL="https://api.preconfin.com/api"
+```
+
 6. Run the Python example:
 
 ```bash
@@ -44,6 +50,8 @@ npx tsx examples/typescript/preconfin_agent_example.ts
   Use a read-only Agent App with `browser_access_enabled = true` and an exact allowed origin. This is appropriate for prototypes in Bolt, Lovable, Cursor, or Vercel against demo or staging orgs.
 - Production mode:
   Frontend -> your backend or agent server -> Preconfin Agent API. Keep `PRECONFIN_AGENT_KEY` out of the browser and leave browser write access disabled unless you have an explicit reason to enable it.
+- Frontend and backend URLs are different:
+  Use `https://api.preconfin.com/api` for the Agent API. Do not use `https://staging.preconfin.com/api` unless that frontend host is explicitly configured as a backend proxy.
 - The Python example uses only the Python standard library.
 - The TypeScript example uses only built-in `fetch` at runtime.
 - If you only want to typecheck the TypeScript file, run:
