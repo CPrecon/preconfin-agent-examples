@@ -109,23 +109,26 @@ The schema is OpenAI-compatible: each tool definition includes `type: "function"
 
 ## 2. Execute a structured read tool
 
-Example: current financial state.
+Example: dashboard overview KPIs.
 
 ```bash
 curl -s \
   -H "Authorization: Bearer $PRECONFIN_AGENT_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "tool_name": "get_financial_state",
-    "arguments": {
-      "start": "2026-01-01",
-      "end": "2026-03-31",
-      "source": "stripe",
-      "exclude_transfers": true
-    }
+    "tool_name": "get_people_snapshot",
+    "arguments": {}
   }' \
   "$PRECONFIN_BASE_URL/agent/tools/execute"
 ```
+
+Overview field mapping:
+
+- Cash Balance -> `data.people_snapshot.cash_balance`
+- Burn Rate -> `data.people_snapshot.burn_rate`
+- Runway -> `data.people_snapshot.cash_runway`
+- Active Subscribers -> `data.people_snapshot.active_subscribers`
+- Warning -> `data.people_snapshot.runway_warning`
 
 Example: recent system activity.
 

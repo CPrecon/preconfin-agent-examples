@@ -39,17 +39,12 @@ async function main(): Promise<void> {
   console.log('Available tools:');
   console.log(JSON.stringify(tools, null, 2));
 
-  const financialState = await apiRequest<JsonObject>('/agent/tools/execute', {
-    tool_name: 'get_financial_state',
-    arguments: {
-      start: '2026-01-01',
-      end: '2026-03-31',
-      source: 'stripe',
-      exclude_transfers: true,
-    },
+  const peopleSnapshot = await apiRequest<JsonObject>('/agent/tools/execute', {
+    tool_name: 'get_people_snapshot',
+    arguments: {},
   });
-  console.log('\nFinancial state:');
-  console.log(JSON.stringify(financialState, null, 2));
+  console.log('\nPeople snapshot:');
+  console.log(JSON.stringify(peopleSnapshot, null, 2));
 
   const queryResult = await apiRequest<JsonObject>('/agent/query', {
     query: 'Show current runway and burn',
