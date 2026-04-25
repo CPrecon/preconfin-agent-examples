@@ -24,7 +24,7 @@ DEFAULT_BASE_URL = "https://api.preconfin.com/api"
 DEFAULT_ACTIVITY_LIMIT = 8
 PROBLEM_STATUSES = {"failed", "error", "blocked", "warning", "pending"}
 SOURCE_PROBLEM_HEALTH = {"blocked", "review", "warning", "unknown"}
-REQUIRED_TOOLS = ("get_financial_state", "get_system_activity", "get_sources")
+REQUIRED_TOOLS = ("get_people_snapshot", "get_financial_state", "get_system_activity", "get_sources")
 
 
 def env_base_url() -> str:
@@ -121,25 +121,57 @@ def normalize_text(value: Any) -> str:
     return " ".join(str(value or "").strip().split())
 
 
-def render_financial_summary(financial_state: dict[str, Any]) -> list[str]:
+def amount_cents_to_dollars(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value) / 100.0
+    return None
+
+
+def render_financial_summary(financial_state: dict[str, Any], people_snapshot_payload: dict[str, Any]) -> list[str]:
     net = walk_find_first_number(financial_state, {"net", "net_cash_flow", "net_cash", "net_amount"})
-    burn = walk_find_first_number(financial_state, {"burn", "burn_rate", "monthly_burn"})
-    runway = walk_find_first_number(financial_state, {"runway", "runway_months"})
+    people_snapshot = people_snapshot_payload.get("people_snapshot") if isinstance(people_snapshot_payload, dict) else {}
+    if not isinstance(people_snapshot, dict):
+        people_snapshot = {}
+
+    cash_balance = amount_cents_to_dollars((people_snapshot.get("cash_balance") or {}).get("amount_cents"))
+    burn = amount_cents_to_dollars((people_snapshot.get("burn_rate") or {}).get("amount_cents"))
+    runway = (people_snapshot.get("cash_runway") or {}).get("months")
+    active_subscribers = (people_snapshot.get("active_subscribers") or {}).get("count")
+    runway_warning = people_snapshot.get("runway_warning")
 
     readiness = "Unavailable"
     readiness_payload = financial_state.get("readiness")
     if isinstance(readiness_payload, dict):
         readiness = normalize_text(readiness_payload.get("status")) or readiness
 
-    as_of = normalize_text(financial_state.get("as_of")) or normalize_text(financial_state.get("generated_at")) or "Unavailable"
+    as_of = (
+        normalize_text(people_snapshot_payload.get("captured_at"))
+        or normalize_text((people_snapshot.get("cash_balance") or {}).get("as_of"))
+        or normalize_text(financial_state.get("as_of"))
+        or normalize_text(financial_state.get("generated_at"))
+        or "Unavailable"
+    )
 
-    return [
-        f"- Net: {format_currency(net)}",
+    summary = [
+        f"- Cash Balance: {format_currency(cash_balance)}",
         f"- Burn: {format_currency(burn)} / month" if burn is not None else "- Burn: Unavailable",
         f"- Runway: {format_runway(runway)}",
+        f"- Active Subscribers: {int(active_subscribers):,}"
+        if isinstance(active_subscribers, (int, float))
+        else "- Active Subscribers: Unavailable",
+        f"- Net: {format_currency(net)}",
         f"- Readiness: {readiness}",
         f"- As of: {as_of}",
     ]
+
+    if isinstance(runway_warning, dict):
+        warning_title = normalize_text(runway_warning.get("title"))
+        warning_reason = normalize_text(runway_warning.get("reason"))
+        warning_text = " ".join(part for part in (warning_title, warning_reason) if part)
+        if warning_text:
+            summary.append(f"- Warning: {warning_text}")
+
+    return summary
 
 
 def render_recent_activity(system_activity: dict[str, Any], limit: int) -> list[str]:
@@ -247,6 +279,12 @@ def main() -> int:
     get_required_tools(base_url, agent_key)
 
     start, end = iso_window(args.days)
+    people_snapshot = execute_tool(
+        base_url,
+        agent_key,
+        "get_people_snapshot",
+        {},
+    )
     financial_state = execute_tool(
         base_url,
         agent_key,
@@ -276,7 +314,7 @@ def main() -> int:
     print(f"Generated: {utc_timestamp()}")
     print("")
     print("Financial Summary:")
-    print("\n".join(render_financial_summary(financial_state)))
+    print("\n".join(render_financial_summary(financial_state, people_snapshot)))
     print("")
     print("Recent Activity:")
     print("\n".join(render_recent_activity(system_activity, args.activity_limit)))

@@ -130,6 +130,8 @@ Overview field mapping:
 - Active Subscribers -> `data.people_snapshot.active_subscribers`
 - Warning -> `data.people_snapshot.runway_warning`
 
+For dashboard cards and external app overviews, call `get_people_snapshot` directly. Do not use `get_financial_state`, `get_system_snapshot`, or `/agent/query` as a substitute for these fields.
+
 Example: recent system activity.
 
 ```bash
@@ -156,10 +158,11 @@ curl -s \
   -H "Authorization: Bearer $PRECONFIN_AGENT_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "Show current runway and burn",
+    "query": "Show recent activity",
     "context": {
-      "start": "2026-01-01",
-      "end": "2026-03-31"
+      "source": "stripe",
+      "family": "connection",
+      "limit": 10
     }
   }' \
   "$PRECONFIN_BASE_URL/agent/query"
@@ -170,6 +173,8 @@ Typical routing:
 - `financial`, `runway`, `burn` -> financial state surface
 - `activity`, `events` -> system event ledger
 - `sources`, `connections` -> source and system snapshot surface
+
+Use `/agent/query` for deterministic routing help. For known structured overview reads, prefer calling `get_people_snapshot` directly.
 
 ## 4. Execute an action
 

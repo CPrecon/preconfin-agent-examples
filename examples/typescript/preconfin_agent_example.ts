@@ -47,11 +47,11 @@ async function main(): Promise<void> {
   console.log(JSON.stringify(peopleSnapshot, null, 2));
 
   const queryResult = await apiRequest<JsonObject>('/agent/query', {
-    query: 'Show current runway and burn',
+    query: 'Show recent activity',
     context: {
-      start: '2026-01-01',
-      end: '2026-03-31',
       source: 'stripe',
+      family: 'connection',
+      limit: 10,
     },
   });
   console.log('\nQuery result:');
