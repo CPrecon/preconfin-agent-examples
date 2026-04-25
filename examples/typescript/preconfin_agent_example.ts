@@ -46,6 +46,15 @@ async function main(): Promise<void> {
   console.log('\nPeople snapshot:');
   console.log(JSON.stringify(peopleSnapshot, null, 2));
 
+  const peopleCharts = await apiRequest<JsonObject>('/agent/tools/execute', {
+    tool_name: 'get_people_charts',
+    arguments: {
+      granularity: 'month',
+    },
+  });
+  console.log('\nPeople charts:');
+  console.log(JSON.stringify(peopleCharts, null, 2));
+
   const queryResult = await apiRequest<JsonObject>('/agent/query', {
     query: 'Show recent activity',
     context: {

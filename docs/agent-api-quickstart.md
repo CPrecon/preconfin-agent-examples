@@ -132,6 +132,27 @@ Overview field mapping:
 
 For dashboard cards and external app overviews, call `get_people_snapshot` directly. Do not use `get_financial_state`, `get_system_snapshot`, or `/agent/query` as a substitute for these fields.
 
+Example: people chart series.
+
+```bash
+curl -s \
+  -H "Authorization: Bearer $PRECONFIN_AGENT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool_name": "get_people_charts",
+    "arguments": {
+      "granularity": "month"
+    }
+  }' \
+  "$PRECONFIN_BASE_URL/agent/tools/execute"
+```
+
+Chart mapping:
+
+- Cashflow chart -> `data.charts.cashflow.rows`
+- Operating performance chart -> `data.charts.operating_performance.rows`
+- Recurring revenue / subscribers chart -> `data.charts.recurring_revenue.rows`
+
 Example: recent system activity.
 
 ```bash
@@ -174,7 +195,7 @@ Typical routing:
 - `activity`, `events` -> system event ledger
 - `sources`, `connections` -> source and system snapshot surface
 
-Use `/agent/query` for deterministic routing help. For known structured overview reads, prefer calling `get_people_snapshot` directly.
+Use `/agent/query` for deterministic routing help. For known structured overview reads, prefer calling `get_people_snapshot` directly, and for known structured chart reads prefer calling `get_people_charts` directly.
 
 ## 4. Execute an action
 

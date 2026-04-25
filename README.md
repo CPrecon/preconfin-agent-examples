@@ -50,6 +50,8 @@ npx tsx examples/typescript/preconfin_agent_example.ts
   Use a read-only Agent App with `browser_access_enabled = true` and an exact allowed origin. This is appropriate for prototypes in Bolt, Lovable, Cursor, or Vercel against demo or staging orgs.
 - For dashboard overview cards in Bolt or Lovable:
   Call `get_people_snapshot` for Cash Balance, Burn Rate, Runway, Active Subscribers, and runway warnings.
+- For dashboard trend lines and charts in Bolt or Lovable:
+  Call `get_people_charts` for cashflow, operating performance, and recurring revenue/subscriber series.
 - The Python CFO example:
   Uses `get_people_snapshot` for overview KPIs and `get_financial_state` for net/readiness context.
 - Production mode:

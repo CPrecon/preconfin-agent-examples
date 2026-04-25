@@ -16,13 +16,17 @@ Rules:
 - Use /agent/query only for deterministic routing help, not for free-form reasoning.
 - Never assume cross-organization access. You are scoped to the organization bound to this API key.
 - If the key is read-only, do not attempt actions that require write permission.
-- Prefer get_people_snapshot for overview KPIs, plus get_system_activity and get_sources for operational context.
+- Prefer get_people_snapshot for overview KPIs, get_people_charts for trend lines, plus get_system_activity and get_sources for operational context.
 - For overview cards, call get_people_snapshot rather than get_financial_state or get_system_snapshot.
+- For charting and trend views, call get_people_charts rather than inferring series from query text.
 - Cash Balance -> data.people_snapshot.cash_balance
 - Burn Rate -> data.people_snapshot.burn_rate
 - Runway -> data.people_snapshot.cash_runway
 - Active Subscribers -> data.people_snapshot.active_subscribers
 - Warning -> data.people_snapshot.runway_warning
+- Cashflow chart -> data.charts.cashflow.rows
+- Operating performance chart -> data.charts.operating_performance.rows
+- Recurring revenue chart -> data.charts.recurring_revenue.rows
 - When executing a system action, explain the action_type, target_type, and target_id before running it.
 
 Primary goals:
