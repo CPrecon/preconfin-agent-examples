@@ -4,13 +4,14 @@ Preconfin exposes a thin, organization-scoped agent layer on top of the canonica
 
 You can get an external agent reading state and executing actions in a few minutes:
 
-1. Create an Agent API key in `Settings -> Agent API`.
+1. Create an Agent App in `Settings -> Agent API`.
 2. Choose `read` if the agent only needs state access.
 3. Choose `write` if the agent must also execute system actions.
 4. Save the key immediately. Preconfin stores only the hash and will not show the full key again.
-5. Export the environment variables shown below.
-6. Call `/agent/tools` to discover available tools.
-7. Call `/agent/tools/execute`, `/agent/query`, or `/agent/action` with the same bearer key.
+5. If the caller is a browser frontend, enable browser access and add the exact origin you control.
+6. Export the environment variables shown below.
+7. Call `/agent/tools` to discover available tools.
+8. Call `/agent/tools/execute`, `/agent/query`, or `/agent/action` with the same bearer key.
 
 ## Base URL and auth
 
@@ -29,12 +30,52 @@ Authorization: Bearer <agent_api_key>
 
 Agent requests are scoped to the organization that owns the key. There is no cross-organization access.
 
+## Deployment modes
+
+### 1. Browser demo mode
+
+Use this for prototypes and internal demos:
+
+- `read` key
+- `browser_access_enabled = true`
+- exact allowed origin configured on the Agent App
+- ideal for Bolt, Lovable, Cursor, or Vercel demos against demo or staging orgs
+
+Architecture:
+
+```text
+Browser frontend -> Preconfin Agent API
+```
+
+Browser requests require:
+
+- valid API key
+- matching organization scope
+- permission scope
+- exact allowed origin match
+
+### 2. Production mode
+
+Use this for real customer-facing apps:
+
+- keep the Preconfin key on your backend or agent server
+- do not ship the key to the browser
+- leave browser write access disabled unless you explicitly need it
+
+Architecture:
+
+```text
+Browser frontend -> customer backend / agent server -> Preconfin Agent API
+```
+
 ## Permissions
 
 - `read`
   Can call `GET /agent/tools`, `POST /agent/tools/execute` for read tools, and `POST /agent/query`.
 - `write`
   Can do everything `read` can do, plus `POST /agent/action` and `POST /agent/tools/execute` for `execute_system_action`.
+
+Browser-origin write calls are blocked by default unless the Agent App explicitly enables browser write access.
 
 ## 1. Discover tools
 
