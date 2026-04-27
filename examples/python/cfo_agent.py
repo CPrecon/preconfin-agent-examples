@@ -20,6 +20,8 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from _env import load_local_env, required_env
+
 
 DEFAULT_BASE_URL = "https://api.preconfin.com/api"
 DEFAULT_ACTIVITY_LIMIT = 8
@@ -29,14 +31,12 @@ REQUIRED_TOOLS = ("get_people_snapshot", "get_financial_state", "get_system_acti
 
 
 def env_base_url() -> str:
+    load_local_env()
     return os.getenv("PRECONFIN_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
 
 
 def env_agent_key() -> str:
-    agent_key = os.getenv("PRECONFIN_AGENT_KEY", "").strip()
-    if not agent_key:
-        raise RuntimeError("PRECONFIN_AGENT_KEY is required.")
-    return agent_key
+    return required_env("PRECONFIN_AGENT_KEY")
 
 
 def api_request(base_url: str, agent_key: str, path: str, body: dict[str, Any] | None = None) -> Any:

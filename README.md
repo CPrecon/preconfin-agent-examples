@@ -27,6 +27,8 @@ export PRECONFIN_BASE_URL="https://api.preconfin.com/api"
 export PRECONFIN_AGENT_KEY="your_agent_key_here"
 ```
 
+   Or place the same keys in `preconfin-agent-examples/.env`, `preconfin-agent-examples/.env.local`, `./.env`, or `./.env.local`. The Python demos will read those files automatically.
+
 For browser apps such as Bolt or Lovable, set:
 
 ```bash

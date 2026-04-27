@@ -6,11 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import sys
 import urllib.error
 import urllib.request
 from typing import Any
+
+from _env import required_env
 
 
 BASE_URL = "https://api.preconfin.com/api"
@@ -43,10 +44,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def env_agent_key() -> str:
-    agent_key = os.getenv("PRECONFIN_AGENT_KEY", "").strip()
-    if not agent_key:
-        raise RuntimeError("PRECONFIN_AGENT_KEY is required.")
-    return agent_key
+    return required_env("PRECONFIN_AGENT_KEY")
 
 
 def call_agent(tool_name: str, arguments: dict[str, Any]) -> Any:
