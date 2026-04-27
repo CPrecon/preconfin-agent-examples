@@ -7,7 +7,9 @@ This repository contains public-safe Agent API docs and examples that can live o
 ## Contents
 
 - [Quickstart](./docs/agent-api-quickstart.md)
-- [Python CFO agent](./examples/python/cfo_agent.py)
+- [Claude demo](./examples/python/cfo_agent.py)
+- [Codex demo](./examples/python/codex_cfo_agent.py)
+- [Grok demo](./examples/python/grok_cfo_agent.py)
 - [TypeScript example](./examples/typescript/preconfin_agent_example.ts)
 - [Cursor prompt](./examples/cursor/cursor_agent_prompt.md)
 - [Environment template](./.env.example)
@@ -31,10 +33,12 @@ For browser apps such as Bolt or Lovable, set:
 VITE_PRECONFIN_BASE_URL="https://api.preconfin.com/api"
 ```
 
-6. Run the Python example:
+6. Run the Python demos from the same folder:
 
 ```bash
-python3 examples/python/cfo_agent.py
+python3 examples/python/cfo_agent.py "what is my burn rate"
+python3 examples/python/codex_cfo_agent.py "what is my burn rate"
+python3 examples/python/grok_cfo_agent.py "what is my burn rate"
 ```
 
 7. Run the TypeScript example:
@@ -52,7 +56,7 @@ npx tsx examples/typescript/preconfin_agent_example.ts
   Call `get_people_snapshot` for Cash Balance, Burn Rate, Runway, Active Subscribers, and runway warnings.
 - For dashboard trend lines and charts in Bolt or Lovable:
   Call `get_people_charts` for cashflow, operating performance, and recurring revenue/subscriber series.
-- The Python CFO example:
+- The Python demo scripts:
   Uses `get_people_snapshot` for overview KPIs and `get_financial_state` for net/readiness context.
 - Production mode:
   Frontend -> your backend or agent server -> Preconfin Agent API. Keep `PRECONFIN_AGENT_KEY` out of the browser and leave browser write access disabled unless you have an explicit reason to enable it.

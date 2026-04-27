@@ -230,6 +230,8 @@ This returns the existing `system_action_result.v1` payload.
 
 ## Runnable examples
 
-- Python CFO agent: [examples/python/cfo_agent.py](../examples/python/cfo_agent.py)
+- Claude demo: [examples/python/cfo_agent.py](../examples/python/cfo_agent.py)
+- Codex demo: [examples/python/codex_cfo_agent.py](../examples/python/codex_cfo_agent.py)
+- Grok demo: [examples/python/grok_cfo_agent.py](../examples/python/grok_cfo_agent.py)
 - TypeScript example: [examples/typescript/preconfin_agent_example.ts](../examples/typescript/preconfin_agent_example.ts)
 - Cursor prompt: [examples/cursor/cursor_agent_prompt.md](../examples/cursor/cursor_agent_prompt.md)

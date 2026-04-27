@@ -5,6 +5,7 @@ Usage:
   export PRECONFIN_BASE_URL="https://api.preconfin.com/api"
   export PRECONFIN_AGENT_KEY="your_agent_key_here"
   python3 examples/python/cfo_agent.py
+  python3 examples/python/cfo_agent.py "what is my burn rate"
 """
 
 from __future__ import annotations
@@ -233,6 +234,11 @@ def render_attention_items(sources_payload: dict[str, Any], system_activity: dic
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a deterministic CFO briefing through the Preconfin Agent API.")
+    parser.add_argument(
+        "question",
+        nargs="?",
+        help='Optional question shortcut, for example: "what is my burn rate".',
+    )
     parser.add_argument("--base-url", default=env_base_url(), help="Defaults to PRECONFIN_BASE_URL.")
     parser.add_argument("--days", type=int, default=90, help="Financial lookback window in days.")
     parser.add_argument("--activity-limit", type=int, default=DEFAULT_ACTIVITY_LIMIT, help="Maximum recent events to print.")
@@ -277,6 +283,15 @@ def main() -> int:
     base_url = args.base_url.rstrip("/")
 
     get_required_tools(base_url, agent_key)
+
+    if args.question:
+        import codex_cfo_agent as question_demo
+
+        question_demo.BASE_URL = base_url
+        intent, tool_name = question_demo.detect_request(args.question)
+        payload = execute_tool(base_url, agent_key, tool_name, {})
+        print(question_demo.render_cli(intent, tool_name, args.question, payload))
+        return 0
 
     start, end = iso_window(args.days)
     people_snapshot = execute_tool(
