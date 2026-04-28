@@ -1,6 +1,8 @@
 # Preconfin Agent API Quickstart
 
-Preconfin exposes a thin, organization-scoped agent layer on top of the canonical system contracts.
+This is the fast path. For the full public integration reference, see the [full developer guide](./agent-developer-guide.md).
+
+Preconfin exposes a thin, organization-scoped agent layer on top of canonical system contracts.
 
 You can get an external agent reading state and executing actions in a few minutes:
 
@@ -11,7 +13,8 @@ You can get an external agent reading state and executing actions in a few minut
 5. If the caller is a browser frontend, enable browser access and add the exact origin you control.
 6. Export the environment variables shown below.
 7. Call `/agent/tools` to discover available tools.
-8. Call `/agent/tools/execute`, `/agent/query`, or `/agent/action` with the same bearer key.
+8. Prefer `POST /agent/tools/execute` for tool calls, including writes through `execute_system_action`.
+9. Use `POST /agent/query` only for deterministic routing help, not as a substitute for known structured tools.
 
 ## Base URL and auth
 
@@ -83,9 +86,29 @@ Browser frontend -> customer backend / agent server -> Preconfin Agent API
 - `read`
   Can call `GET /agent/tools`, `POST /agent/tools/execute` for read tools, and `POST /agent/query`.
 - `write`
-  Can do everything `read` can do, plus `POST /agent/action` and `POST /agent/tools/execute` for `execute_system_action`.
+  Can do everything `read` can do, plus `POST /agent/tools/execute` for `execute_system_action`.
 
 Browser-origin write calls are blocked by default unless the Agent App explicitly enables browser write access.
+
+## Preferred tool request shape
+
+Use:
+
+```json
+{
+  "tool_name": "get_people_snapshot",
+  "arguments": {}
+}
+```
+
+Do not use:
+
+```json
+{
+  "tool": "get_people_snapshot",
+  "args": {}
+}
+```
 
 ## 1. Discover tools
 
@@ -206,17 +229,22 @@ curl -s \
   -H "Authorization: Bearer $PRECONFIN_AGENT_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "action_type": "refresh_source",
-    "target_type": "source",
-    "target_id": "plaid",
-    "parameters": {
-      "force": true
+    "tool_name": "execute_system_action",
+    "arguments": {
+      "action_type": "refresh_source",
+      "target_type": "source",
+      "target_id": "plaid",
+      "parameters": {
+        "force": true
+      }
     }
   }' \
-  "$PRECONFIN_BASE_URL/agent/action"
+  "$PRECONFIN_BASE_URL/agent/tools/execute"
 ```
 
 This returns the existing `system_action_result.v1` payload.
+
+A direct `POST /agent/action` route still exists, but keep the tool-shaped request above as the primary documented integration path.
 
 ## 5. Audit usage
 
@@ -226,7 +254,7 @@ This returns the existing `system_action_result.v1` payload.
 - recent calls
 - endpoint path
 - tool name when `/agent/tools/execute` was used
-- action name when `/agent/action` or `execute_system_action` was used
+- action name when `execute_system_action` was used
 
 ## Runnable examples
 
@@ -235,3 +263,8 @@ This returns the existing `system_action_result.v1` payload.
 - Grok demo: [examples/python/grok_cfo_agent.py](../examples/python/grok_cfo_agent.py)
 - TypeScript example: [examples/typescript/preconfin_agent_example.ts](../examples/typescript/preconfin_agent_example.ts)
 - Cursor prompt: [examples/cursor/cursor_agent_prompt.md](../examples/cursor/cursor_agent_prompt.md)
+
+Current gaps from the repo scan:
+
+- No dedicated OpenClaw adapter file was found.
+- No multi-agent comparison command was found.

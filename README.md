@@ -7,12 +7,22 @@ This repository contains public-safe Agent API docs and examples that can live o
 ## Contents
 
 - [Quickstart](./docs/agent-api-quickstart.md)
+- [Full developer guide](./docs/agent-developer-guide.md)
 - [Claude demo](./examples/python/cfo_agent.py)
 - [Codex demo](./examples/python/codex_cfo_agent.py)
 - [Grok demo](./examples/python/grok_cfo_agent.py)
 - [TypeScript example](./examples/typescript/preconfin_agent_example.ts)
 - [Cursor prompt](./examples/cursor/cursor_agent_prompt.md)
 - [Environment template](./.env.example)
+
+This repo is the public-facing examples repo. Keep it safe to publish:
+
+- no secrets committed
+- placeholder-only `.env.example`
+- runnable examples that call the public Agent API directly
+- docs mirrored from the private app repos when the public guidance changes
+
+For the full public integration reference, use [docs/agent-developer-guide.md](./docs/agent-developer-guide.md).
 
 ## Setup
 
@@ -54,18 +64,23 @@ npx tsx examples/typescript/preconfin_agent_example.ts
 
 - Browser demo mode:
   Use a read-only Agent App with `browser_access_enabled = true` and an exact allowed origin. This is appropriate for prototypes in Bolt, Lovable, Cursor, or Vercel against demo or staging orgs.
+- Browser demos should use `window.location.origin` as the allowlisted origin and should call the backend API directly.
 - For dashboard overview cards in Bolt or Lovable:
   Call `get_people_snapshot` for Cash Balance, Burn Rate, Runway, Active Subscribers, and runway warnings.
 - For dashboard trend lines and charts in Bolt or Lovable:
   Call `get_people_charts` for cashflow, operating performance, and recurring revenue/subscriber series.
 - The Python demo scripts:
   Uses `get_people_snapshot` for overview KPIs and `get_financial_state` for net/readiness context.
+- Preferred write path:
+  Use `POST /agent/tools/execute` with `tool_name: "execute_system_action"` and an `arguments` object. A direct `POST /agent/action` route exists, but keep the tool-shaped request as the main documented path.
 - Production mode:
   Frontend -> your backend or agent server -> Preconfin Agent API. Keep `PRECONFIN_AGENT_KEY` out of the browser and leave browser write access disabled unless you have an explicit reason to enable it.
 - Frontend and backend URLs are different:
   Use `https://api.preconfin.com/api` for the Agent API. Do not use `https://staging.preconfin.com/api` unless that frontend host is explicitly configured as a backend proxy.
 - The Python example uses only the Python standard library.
 - The TypeScript example uses only built-in `fetch` at runtime.
+- Current repo coverage:
+  No dedicated OpenClaw adapter or multi-agent comparison command was found in this repo. Do not imply those exist until files are added.
 - If you only want to typecheck the TypeScript file, run:
 
 ```bash
