@@ -261,10 +261,18 @@ A direct `POST /agent/action` route still exists, but keep the tool-shaped reque
 - Claude demo: [examples/python/cfo_agent.py](../examples/python/cfo_agent.py)
 - Codex demo: [examples/python/codex_cfo_agent.py](../examples/python/codex_cfo_agent.py)
 - Grok demo: [examples/python/grok_cfo_agent.py](../examples/python/grok_cfo_agent.py)
+- OpenClaw runtime adapter: [examples/openclaw/README.md](../examples/openclaw/README.md)
 - TypeScript example: [examples/typescript/preconfin_agent_example.ts](../examples/typescript/preconfin_agent_example.ts)
 - Cursor prompt: [examples/cursor/cursor_agent_prompt.md](../examples/cursor/cursor_agent_prompt.md)
 
-Current gaps from the repo scan:
+## OpenClaw runtime notes
 
-- No dedicated OpenClaw adapter file was found.
-- No multi-agent comparison command was found.
+- Some OpenClaw installs may require separate provider auth before the runtime will execute workspace skills.
+- Preconfin itself only requires `PRECONFIN_AGENT_KEY` plus the normal Agent API base URL.
+- If OpenClaw auth is the failure point, run the deterministic Python adapter directly:
+
+```bash
+python3 examples/openclaw/skills/preconfin_finance/preconfin_tool.py "what is my burn rate"
+```
+
+The adapter uses only the public Preconfin Agent API and is safe to run without OpenClaw once `PRECONFIN_AGENT_KEY` is set.

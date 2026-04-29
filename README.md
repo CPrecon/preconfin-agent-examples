@@ -8,9 +8,10 @@ This repository contains public-safe Agent API docs and examples that can live o
 
 - [Quickstart](./docs/agent-api-quickstart.md)
 - [Full developer guide](./docs/agent-developer-guide.md)
-- [Claude demo](./examples/python/cfo_agent.py)
-- [Codex demo](./examples/python/codex_cfo_agent.py)
-- [Grok demo](./examples/python/grok_cfo_agent.py)
+- [Python CLI](./examples/python/cfo_agent.py)
+- Claude/Codex/Grok examples: [Claude](./examples/python/cfo_agent.py), [Codex](./examples/python/codex_cfo_agent.py), [Grok](./examples/python/grok_cfo_agent.py)
+- Lovable/Bolt browser dashboard examples: [Lovable](./docs/agent-developer-guide.md#lovable), [Bolt](./docs/agent-developer-guide.md#bolt)
+- [OpenClaw runtime adapter](./examples/openclaw/README.md)
 - [TypeScript example](./examples/typescript/preconfin_agent_example.ts)
 - [Cursor prompt](./examples/cursor/cursor_agent_prompt.md)
 - [Environment template](./.env.example)
@@ -60,6 +61,12 @@ npm install --save-dev typescript tsx
 npx tsx examples/typescript/preconfin_agent_example.ts
 ```
 
+8. Run the OpenClaw adapter directly if you want deterministic local routing without relying on OpenClaw runtime auth:
+
+```bash
+python3 examples/openclaw/skills/preconfin_finance/preconfin_tool.py "what is my burn rate"
+```
+
 ## Notes
 
 - Browser demo mode:
@@ -79,8 +86,8 @@ npx tsx examples/typescript/preconfin_agent_example.ts
   Use `https://api.preconfin.com/api` for the Agent API. Do not use `https://staging.preconfin.com/api` unless that frontend host is explicitly configured as a backend proxy.
 - The Python example uses only the Python standard library.
 - The TypeScript example uses only built-in `fetch` at runtime.
-- Current repo coverage:
-  No dedicated OpenClaw adapter or multi-agent comparison command was found in this repo. Do not imply those exist until files are added.
+- OpenClaw runtime note:
+  Some OpenClaw installs may require separate provider auth before the runtime will execute workspace skills. Preconfin itself only requires `PRECONFIN_AGENT_KEY`. If OpenClaw auth is the failure point, run the deterministic adapter under [`examples/openclaw`](./examples/openclaw/README.md) directly.
 - If you only want to typecheck the TypeScript file, run:
 
 ```bash
