@@ -32,7 +32,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.report:
             sys.stdout.write(build_report())
             return 0
-        return run_question(question, raw=args.raw)
+        sys.stdout.write(run_question(question, raw=args.raw))
+        if not question.endswith("\n"):
+            sys.stdout.write("\n")
+        return 0
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 1

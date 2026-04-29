@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -21,6 +22,11 @@ QUESTION_ROUTE_MAP = (
     ("burn rate", "burn_rate", "get_people_snapshot"),
     ("top expenses", "top_expenses", "get_financial_state"),
     ("needs attention", "needs_attention", "get_financial_state"),
+)
+SENSITIVE_KEYWORDS = ("authorization", "api_key", "agent_key", "token", "secret", "password")
+REDACTED = "[REDACTED]"
+UUID_PATTERN = re.compile(
+    r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\b"
 )
 
 
@@ -166,6 +172,87 @@ def format_runway(value: float | None) -> str:
     if math.isinf(value):
         return "Cash-generating"
     return f"{value:.1f} months"
+
+
+def is_sensitive_key(key: str) -> bool:
+    lowered = key.lower()
+    return any(word in lowered for word in SENSITIVE_KEYWORDS)
+
+
+def friendly_key(key: str) -> str:
+    text = key.replace("_", " ").strip()
+    if not text:
+        return "Value"
+    return text[:1].upper() + text[1:]
+
+
+def sanitize_snapshot_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        sanitized: dict[str, Any] = {}
+        for key, child in value.items():
+            key_text = str(key)
+            if is_sensitive_key(key_text):
+                continue
+            sanitized[key_text] = sanitize_snapshot_payload(child)
+        return sanitized
+    if isinstance(value, list):
+        return [sanitize_snapshot_payload(item) for item in value]
+    if isinstance(value, str):
+        return UUID_PATTERN.sub(REDACTED, value)
+    return value
+
+
+def format_snapshot_scalar(key: str | None, value: Any) -> str:
+    if value is None:
+        return "not provided"
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if key and key.endswith("_cents") and isinstance(value, (int, float)):
+        return format_currency(float(value) / 100.0)
+    if isinstance(value, (int, float)):
+        money_keys = ("amount", "cash", "balance", "burn", "revenue", "mrr", "arr", "expense")
+        if key and any(term in key.lower() for term in money_keys):
+            return format_currency(float(value))
+        if isinstance(value, int):
+            return str(value)
+        return f"{value:,.2f}"
+    return str(value)
+
+
+def render_snapshot_lines(value: Any, *, key: str | None = None, indent: int = 0) -> list[str]:
+    prefix = "  " * indent
+    if isinstance(value, dict):
+        if not value:
+            return [f"{prefix}- {(friendly_key(key) + ': ') if key else ''}(empty)"]
+        lines: list[str] = []
+        for child_key, child_value in value.items():
+            label = friendly_key(child_key)
+            if isinstance(child_value, (dict, list)):
+                lines.append(f"{prefix}- {label}:")
+                lines.extend(render_snapshot_lines(child_value, key=child_key, indent=indent + 1))
+            else:
+                lines.append(f"{prefix}- {label}: {format_snapshot_scalar(child_key, child_value)}")
+        return lines
+    if isinstance(value, list):
+        if not value:
+            return [f"{prefix}- {(friendly_key(key) + ': ') if key else ''}(none)"]
+        lines: list[str] = []
+        for item in value:
+            if isinstance(item, (dict, list)):
+                lines.append(f"{prefix}- Item:")
+                lines.extend(render_snapshot_lines(item, key=key, indent=indent + 1))
+            else:
+                lines.append(f"{prefix}- {format_snapshot_scalar(key, item)}")
+        return lines
+    label = f"{friendly_key(key)}: " if key else ""
+    return [f"{prefix}- {label}{format_snapshot_scalar(key, value)}"]
+
+
+def render_people_snapshot(payload: Any) -> str:
+    snapshot = sanitize_snapshot_payload(display_payload(payload))
+    lines = ["## People Snapshot", ""]
+    lines.extend(render_snapshot_lines(snapshot))
+    return "\n".join(lines)
 
 
 def detect_request(question: str) -> tuple[str, str]:
@@ -423,6 +510,9 @@ def format_markdown_table(rows: list[dict[str, str]]) -> str:
 
 
 def render_cli(intent: str, tool_name: str, question: str, payload: Any) -> str:
+    if intent == "burn_rate":
+        return render_people_snapshot(payload)
+
     lines = [
         "Preconfin CFO Agent",
         f"Question: {question}",
@@ -430,27 +520,6 @@ def render_cli(intent: str, tool_name: str, question: str, payload: Any) -> str:
         f"Source: {BASE_URL}{EXECUTE_PATH}",
         "",
     ]
-
-    if intent == "burn_rate":
-        details = burn_metric_details(payload)
-        lines.append("Burn Rate")
-        if details["burn_amount"] is not None:
-            lines.append(f"- Burn rate: {format_currency(details['burn_amount'])}/month")
-        else:
-            lines.append("- Burn rate: Unavailable")
-        if details["window_start"] and details["window_end"]:
-            lines.append(f"- Window: {details['window_start']} to {details['window_end']}")
-        if details["as_of"]:
-            lines.append(f"- As of: {details['as_of']}")
-        if details["unavailable_reason"]:
-            lines.append(f"- Note: {details['unavailable_reason']}")
-
-        warnings = extract_attention_items(payload, limit=4)
-        if warnings:
-            lines.append("")
-            lines.append("Warnings")
-            lines.extend(f"- {item}" for item in warnings)
-        return "\n".join(lines)
 
     if intent == "top_expenses":
         rows = normalize_expense_rows(payload)
