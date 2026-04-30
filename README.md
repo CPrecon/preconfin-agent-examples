@@ -8,6 +8,7 @@ This repository contains public-safe Agent API docs and examples that can live o
 
 - [Quickstart](./docs/agent-api-quickstart.md)
 - [Full developer guide](./docs/agent-developer-guide.md)
+- [Slack demo notes](./docs/slack-demo.md)
 - [Python CLI](./examples/python/cfo_agent.py)
 - Claude/Codex/Grok examples: [Claude](./examples/python/cfo_agent.py), [Codex](./examples/python/codex_cfo_agent.py), [Grok](./examples/python/grok_cfo_agent.py)
 - Lovable/Bolt browser dashboard examples: [Lovable](./docs/agent-developer-guide.md#lovable), [Bolt](./docs/agent-developer-guide.md#bolt)
@@ -76,6 +77,8 @@ python3 examples/openclaw/skills/preconfin_finance/preconfin_tool.py "what is my
   Call `get_people_snapshot` for Cash Balance, Burn Rate, Runway, Active Subscribers, and runway warnings.
 - For dashboard trend lines and charts in Bolt or Lovable:
   Call `get_people_charts` for cashflow, operating performance, and recurring revenue/subscriber series.
+- For Slack slash commands:
+  The production Slack integration lives in `precon_backend` at `POST /api/slack/preconfin/command`. This examples repo only documents safe demo usage and should never become the source of truth for org mapping, signature verification, or Slack token handling.
 - The Python demo scripts:
   Uses `get_people_snapshot` for overview KPIs and `get_financial_state` for net/readiness context.
 - Preferred write path:
