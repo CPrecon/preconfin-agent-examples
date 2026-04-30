@@ -248,6 +248,16 @@ def parse_args() -> argparse.Namespace:
         default="briefing",
         help="Choose a narrower output mode.",
     )
+    parser.add_argument(
+        "--charts",
+        action="store_true",
+        help="Generate chart PNGs in charts/ using get_people_charts.",
+    )
+    parser.add_argument(
+        "--report",
+        action="store_true",
+        help="Generate preconfin_cfo_report.md and include charts automatically.",
+    )
     return parser.parse_args()
 
 
@@ -284,13 +294,38 @@ def main() -> int:
 
     get_required_tools(base_url, agent_key)
 
+    if args.report and args.question:
+        raise RuntimeError("Use either a question or --report, not both.")
+
     if args.question:
         import codex_cfo_agent as question_demo
 
         question_demo.BASE_URL = base_url
+        charts_requested = args.charts or args.report
+        if args.report:
+            markdown, report_path, chart_paths, chart_message = question_demo.build_report_bundle(include_charts=True)
+            print(markdown)
+            print(f"Saved report to {report_path}.")
+            if chart_message:
+                print(chart_message)
+            elif chart_paths:
+                print("Generated charts:")
+                for chart_path in chart_paths:
+                    print(f"- {chart_path}")
+            return 0
         intent, tool_name = question_demo.detect_request(args.question)
         payload = execute_tool(base_url, agent_key, tool_name, {})
         print(question_demo.render_cli(intent, tool_name, args.question, payload))
+        if charts_requested:
+            charts_payload = execute_tool(base_url, agent_key, "get_people_charts", {"granularity": "month"})
+            chart_paths, chart_message = question_demo.generate_chart_images(charts_payload)
+            print("")
+            if chart_message:
+                print(chart_message)
+            else:
+                print("Charts")
+                for chart_path in chart_paths:
+                    print(f"- {chart_path}")
         return 0
 
     start, end = iso_window(args.days)
@@ -313,6 +348,43 @@ def main() -> int:
         {"limit": args.activity_limit},
     )
     sources = execute_tool(base_url, agent_key, "get_sources", {})
+    charts_requested = args.charts or args.report
+    chart_paths: list[str] = []
+    chart_message: str | None = None
+    if charts_requested:
+        charts_payload = execute_tool(
+            base_url,
+            agent_key,
+            "get_people_charts",
+            {"granularity": "month"},
+        )
+        import codex_cfo_agent as report_demo
+
+        report_demo.BASE_URL = base_url
+        chart_paths, chart_message = report_demo.generate_chart_images(charts_payload)
+
+    if args.report:
+        import codex_cfo_agent as report_demo
+
+        report_demo.BASE_URL = base_url
+        markdown = report_demo.build_report_markdown(
+            people_snapshot,
+            financial_state,
+            system_activity,
+            sources,
+            charts_payload,
+            chart_paths,
+        )
+        report_path = report_demo.write_report_file(markdown)
+        print(markdown)
+        print(f"Saved report to {report_path}.")
+        if chart_message:
+            print(chart_message)
+        elif chart_paths:
+            print("Generated charts:")
+            for chart_path in chart_paths:
+                print(f"- {chart_path}")
+        return 0
 
     if args.mode == "financial-state":
         print(json.dumps(financial_state, indent=2))
@@ -336,6 +408,14 @@ def main() -> int:
     print("")
     print("Attention Needed:")
     print("\n".join(render_attention_items(sources, system_activity)))
+    if chart_message:
+        print("")
+        print(chart_message)
+    elif chart_paths:
+        print("")
+        print("Charts:")
+        for chart_path in chart_paths:
+            print(f"- {chart_path}")
     return 0
 
 

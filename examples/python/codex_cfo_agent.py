@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+from pathlib import Path
 import re
 import sys
 import urllib.error
@@ -17,7 +18,11 @@ from _env import required_env
 
 BASE_URL = "https://api.preconfin.com/api"
 EXECUTE_PATH = "/agent/tools/execute"
+DEFAULT_ACTIVITY_LIMIT = 8
+REPORT_FILENAME = "preconfin_cfo_report.md"
+CHARTS_DIRNAME = "charts"
 PROBLEM_STATUSES = {"failed", "error", "blocked", "pending", "warning", "review"}
+SOURCE_PROBLEM_HEALTH = {"blocked", "review", "warning", "unknown"}
 QUESTION_ROUTE_MAP = (
     ("burn rate", "burn_rate", "get_people_snapshot"),
     ("top expenses", "top_expenses", "get_financial_state"),
@@ -28,13 +33,49 @@ REDACTED = "[REDACTED]"
 UUID_PATTERN = re.compile(
     r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\b"
 )
+CHART_SPECS = {
+    "cashflow": {
+        "filename": "cashflow.png",
+        "title": "Cashflow",
+        "x_keys": ("period", "month", "date"),
+        "primary_series": (
+            ("income", "Income"),
+            ("expense", "Expense"),
+            ("net", "Net"),
+        ),
+        "secondary_series": (),
+    },
+    "operating_performance": {
+        "filename": "operating_performance.png",
+        "title": "Operating Performance",
+        "x_keys": ("month", "period", "date"),
+        "primary_series": (
+            ("revenue", "Revenue"),
+            ("expenses", "Expenses"),
+            ("net", "Net"),
+        ),
+        "secondary_series": (),
+    },
+    "recurring_revenue": {
+        "filename": "recurring_revenue.png",
+        "title": "Recurring Revenue",
+        "x_keys": ("month", "period", "date"),
+        "primary_series": (
+            ("mrr_cents", "MRR"),
+            ("arr_cents", "ARR"),
+        ),
+        "secondary_series": (
+            ("active_subscribers", "Active Subscribers"),
+        ),
+    },
+}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Query the Preconfin Agent API for CFO-style answers."
     )
-    parser.add_argument("question", help='Question to ask, for example: "top expenses"')
+    parser.add_argument("question", nargs="*", help='Question to ask, for example: "top expenses"')
     output_group = parser.add_mutually_exclusive_group()
     output_group.add_argument(
         "--raw",
@@ -44,7 +85,12 @@ def parse_args() -> argparse.Namespace:
     output_group.add_argument(
         "--report",
         action="store_true",
-        help="Print a markdown report instead of CLI text.",
+        help=f"Generate {REPORT_FILENAME}. Includes charts automatically.",
+    )
+    parser.add_argument(
+        "--charts",
+        action="store_true",
+        help=f"Generate chart PNGs in {CHARTS_DIRNAME}/ using get_people_charts.",
     )
     return parser.parse_args()
 
@@ -157,6 +203,16 @@ def first_number(mapping: dict[str, Any] | None, keys: tuple[str, ...]) -> float
         if number is not None:
             return number
     return None
+
+
+def find_list_of_dicts(payload: Any, candidate_keys: set[str]) -> list[dict[str, Any]]:
+    for node in iter_nodes(payload):
+        if not isinstance(node, dict):
+            continue
+        for key, value in node.items():
+            if normalize_text(key).lower() in candidate_keys and isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+    return []
 
 
 def format_currency(value: float | None) -> str:
@@ -311,6 +367,45 @@ def burn_metric_details(payload: Any) -> dict[str, Any]:
         "window_end": window_end,
         "runway_months": runway_months,
         "runway_unavailable_reason": runway_unavailable_reason,
+        "runway_warning": runway_warning if isinstance(runway_warning, dict) else None,
+    }
+
+
+def people_snapshot_details(payload: Any) -> dict[str, Any]:
+    root = display_payload(payload)
+    people = find_first_dict(root, {"people_snapshot"}) or (root if isinstance(root, dict) else None)
+    if not isinstance(people, dict):
+        people = {}
+
+    cash_balance = find_first_dict(people, {"cash_balance"})
+    burn_rate = find_first_dict(people, {"burn_rate"})
+    runway = find_first_dict(people, {"cash_runway", "runway"})
+    subscribers = find_first_dict(people, {"active_subscribers"})
+    runway_warning = find_first_dict(people, {"runway_warning"})
+
+    cash_amount = cents_to_dollars(cash_balance.get("amount_cents")) if isinstance(cash_balance, dict) else None
+    if cash_amount is None:
+        cash_amount = first_number(cash_balance, ("amount", "value"))
+
+    burn_amount = cents_to_dollars(burn_rate.get("amount_cents")) if isinstance(burn_rate, dict) else None
+    if burn_amount is None:
+        burn_amount = first_number(burn_rate, ("amount", "value"))
+
+    runway_months = first_number(runway, ("months", "runway_months", "value"))
+    active_subscribers = first_number(subscribers, ("count", "value", "active_subscribers"))
+    as_of = (
+        first_text(cash_balance, ("as_of", "captured_at"))
+        or first_text(burn_rate, ("as_of", "captured_at"))
+        or first_text(people, ("captured_at", "as_of"))
+        or first_text(root if isinstance(root, dict) else None, ("captured_at", "as_of"))
+    )
+
+    return {
+        "cash_balance": cash_amount,
+        "burn_amount": burn_amount,
+        "runway_months": runway_months,
+        "active_subscribers": active_subscribers,
+        "as_of": as_of,
         "runway_warning": runway_warning if isinstance(runway_warning, dict) else None,
     }
 
@@ -477,6 +572,286 @@ def normalize_expense_rows(payload: Any) -> list[dict[str, str]]:
     return normalized_rows
 
 
+def render_recent_activity(payload: Any, limit: int = DEFAULT_ACTIVITY_LIMIT) -> list[str]:
+    events = find_list_of_dicts(display_payload(payload), {"events", "items", "activity"})
+    if not events:
+        return ["- No recent activity returned by get_system_activity."]
+
+    lines: list[str] = []
+    for event in events[:limit]:
+        timestamp = normalize_text(event.get("timestamp") or event.get("created_at") or event.get("occurred_at")) or "unknown time"
+        title = normalize_text(event.get("title") or event.get("event_name") or event.get("name")) or "Untitled event"
+        status = normalize_text(event.get("status")) or "unknown"
+        detail = normalize_text(event.get("message") or event.get("description") or event.get("summary")) or "No details returned."
+        lines.append(f"- [{timestamp}] {title} ({status}): {detail}")
+    return lines
+
+
+def render_attention_items(
+    financial_payload: Any,
+    sources_payload: Any,
+    system_activity_payload: Any,
+    *,
+    limit: int = 6,
+) -> list[str]:
+    items = extract_attention_items(financial_payload, limit=limit)
+    seen = set(items)
+
+    for source in find_list_of_dicts(display_payload(sources_payload), {"sources", "items"}):
+        name = normalize_text(source.get("display_name") or source.get("name") or source.get("source")) or "Unknown source"
+        connected = source.get("connected")
+        health = normalize_text(source.get("health")).lower()
+        ingest_status = normalize_text(source.get("ingest_status")).lower()
+
+        if connected is False:
+            message = f"{name}: connection is incomplete."
+        elif health in SOURCE_PROBLEM_HEALTH:
+            message = f"{name}: health is {health}."
+        elif ingest_status in PROBLEM_STATUSES:
+            message = f"{name}: ingest status is {ingest_status}."
+        else:
+            continue
+
+        if message not in seen:
+            seen.add(message)
+            items.append(message)
+        if len(items) >= limit:
+            return items[:limit]
+
+    for event_line in render_recent_activity(system_activity_payload, limit=limit):
+        if "warning" not in event_line.lower() and "(failed)" not in event_line.lower() and "(error)" not in event_line.lower():
+            continue
+        message = event_line[2:] if event_line.startswith("- ") else event_line
+        if message not in seen:
+            seen.add(message)
+            items.append(message)
+        if len(items) >= limit:
+            break
+
+    return items[:limit] or ["No explicit warnings were found in the API response."]
+
+
+def chart_payload_details(payload: Any) -> dict[str, Any]:
+    root = display_payload(payload)
+    if isinstance(root, dict):
+        charts = root.get("charts")
+        if isinstance(charts, dict):
+            return charts
+    return {}
+
+
+def chart_rows(payload: Any, chart_name: str) -> list[dict[str, Any]]:
+    chart = chart_payload_details(payload).get(chart_name)
+    if isinstance(chart, dict) and isinstance(chart.get("rows"), list):
+        return [row for row in chart["rows"] if isinstance(row, dict)]
+    return []
+
+
+def chart_period_label(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> list[str]:
+    labels: list[str] = []
+    for index, row in enumerate(rows, start=1):
+        label = ""
+        for key in keys:
+            label = normalize_text(row.get(key))
+            if label:
+                break
+        labels.append(label or f"Point {index}")
+    return labels
+
+
+def chart_series_values(rows: list[dict[str, Any]], key: str) -> list[float | None]:
+    values: list[float | None] = []
+    for row in rows:
+        number = to_float(row.get(key))
+        if number is None:
+            values.append(None)
+            continue
+        if key.endswith("_cents"):
+            values.append(number / 100.0)
+        else:
+            values.append(number)
+    return values
+
+
+def generate_chart_images(payload: Any) -> tuple[list[str], str | None]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        from matplotlib import ticker
+        import matplotlib.pyplot as plt
+    except ImportError:
+        return [], "Install matplotlib to generate chart images."
+
+    charts_dir = Path(CHARTS_DIRNAME)
+    charts_dir.mkdir(parents=True, exist_ok=True)
+    generated: list[str] = []
+    plt.style.use("seaborn-v0_8-whitegrid")
+
+    for chart_name, spec in CHART_SPECS.items():
+        rows = chart_rows(payload, chart_name)
+        labels = chart_period_label(rows, spec["x_keys"])
+        figure, axis = plt.subplots(figsize=(10, 5))
+        axis.set_title(spec["title"])
+        axis.set_xlabel("Period")
+        axis.set_ylabel("Amount (USD)")
+        axis.yaxis.set_major_formatter(ticker.StrMethodFormatter("${x:,.0f}"))
+
+        plotted = False
+        for field, label in spec["primary_series"]:
+            series_values = chart_series_values(rows, field)
+            numeric_pairs = [(index, value) for index, value in enumerate(series_values) if value is not None]
+            if not numeric_pairs:
+                continue
+            axis.plot(
+                [pair[0] for pair in numeric_pairs],
+                [pair[1] for pair in numeric_pairs],
+                marker="o",
+                linewidth=2,
+                label=label,
+            )
+            plotted = True
+
+        if spec["secondary_series"]:
+            secondary_axis = axis.twinx()
+            secondary_axis.set_ylabel("Subscribers")
+            secondary_axis.yaxis.set_major_formatter(ticker.StrMethodFormatter("{x:,.0f}"))
+            for field, label in spec["secondary_series"]:
+                series_values = chart_series_values(rows, field)
+                numeric_pairs = [(index, value) for index, value in enumerate(series_values) if value is not None]
+                if not numeric_pairs:
+                    continue
+                secondary_axis.plot(
+                    [pair[0] for pair in numeric_pairs],
+                    [pair[1] for pair in numeric_pairs],
+                    marker="o",
+                    linestyle="--",
+                    linewidth=2,
+                    label=label,
+                    color="#2f855a",
+                )
+                plotted = True
+            secondary_handles, secondary_labels = secondary_axis.get_legend_handles_labels()
+        else:
+            secondary_handles, secondary_labels = [], []
+
+        if labels:
+            axis.set_xticks(list(range(len(labels))))
+            axis.set_xticklabels(labels, rotation=45, ha="right")
+
+        primary_handles, primary_labels = axis.get_legend_handles_labels()
+        if primary_handles or secondary_handles:
+            axis.legend(primary_handles + secondary_handles, primary_labels + secondary_labels, loc="best")
+        if not plotted:
+            axis.text(0.5, 0.5, "No chart data returned.", ha="center", va="center", transform=axis.transAxes)
+
+        figure.tight_layout()
+        output_path = charts_dir / spec["filename"]
+        figure.savefig(output_path, dpi=150, bbox_inches="tight")
+        plt.close(figure)
+        generated.append(output_path.as_posix())
+
+    return generated, None
+
+
+def build_report_markdown(
+    snapshot_payload: Any,
+    financial_payload: Any,
+    system_activity_payload: Any,
+    sources_payload: Any,
+    charts_payload: Any,
+    chart_paths: list[str],
+) -> str:
+    snapshot = people_snapshot_details(snapshot_payload)
+    financial = financial_state_details(financial_payload)
+    top_expenses = normalize_expense_rows(financial_payload)[:5]
+    recent_activity = render_recent_activity(system_activity_payload)
+    attention_items = render_attention_items(financial_payload, sources_payload, system_activity_payload)
+
+    lines = [
+        "# Preconfin CFO Report",
+        "",
+        "## Executive Summary",
+        "",
+        f"- Cash balance: {format_currency(snapshot['cash_balance'])}",
+        f"- Burn rate: {format_currency(snapshot['burn_amount'])}/month" if snapshot["burn_amount"] is not None else "- Burn rate: Unavailable",
+        f"- Runway: {format_runway(snapshot['runway_months'])}",
+        f"- Net position: {format_currency(financial['net_amount'])}",
+        f"- Readiness: {financial['readiness_status'] or 'Unavailable'}",
+    ]
+
+    if top_expenses:
+        lines.append(f"- Largest reported expense line: {top_expenses[0]['Expense']} at {top_expenses[0]['Amount']}")
+    if snapshot["runway_warning"]:
+        warning = " ".join(
+            part
+            for part in (
+                first_text(snapshot["runway_warning"], ("title",)),
+                first_text(snapshot["runway_warning"], ("reason",)),
+            )
+            if part
+        )
+        if warning:
+            lines.append(f"- Runway warning: {warning}")
+
+    lines.extend(
+        [
+            "",
+            "## Cash / Burn / Runway Snapshot",
+            "",
+            f"- Cash balance: {format_currency(snapshot['cash_balance'])}",
+            f"- Burn rate: {format_currency(snapshot['burn_amount'])}/month" if snapshot["burn_amount"] is not None else "- Burn rate: Unavailable",
+            f"- Runway: {format_runway(snapshot['runway_months'])}",
+            f"- Active subscribers: {int(snapshot['active_subscribers']):,}"
+            if snapshot["active_subscribers"] is not None
+            else "- Active subscribers: Unavailable",
+            f"- As of: {snapshot['as_of'] or 'Unavailable'}",
+            "",
+            "## Top Expenses",
+            "",
+            format_markdown_table(top_expenses),
+            "",
+            "## Recent Activity",
+            "",
+        ]
+    )
+    lines.extend(recent_activity)
+    lines.extend(["", "## Needs Attention", ""])
+    lines.extend(f"- {item}" for item in attention_items)
+    lines.extend(["", "## Charts", ""])
+    for chart_path in chart_paths:
+        label = Path(chart_path).stem.replace("_", " ").title()
+        lines.append(f"- [{label}]({chart_path})")
+        lines.append(f"![{label}]({chart_path})")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_report_file(markdown: str) -> str:
+    output_path = Path(REPORT_FILENAME)
+    output_path.write_text(markdown, encoding="utf-8")
+    return output_path.as_posix()
+
+
+def build_report_bundle(*, include_charts: bool) -> tuple[str, str, list[str], str | None]:
+    snapshot_payload = call_agent("get_people_snapshot", {})
+    financial_payload = call_agent("get_financial_state", {})
+    system_activity_payload = call_agent("get_system_activity", {"limit": DEFAULT_ACTIVITY_LIMIT})
+    sources_payload = call_agent("get_sources", {})
+    charts_payload = call_agent("get_people_charts", {"granularity": "month"})
+    chart_paths, chart_message = generate_chart_images(charts_payload) if include_charts else ([], None)
+    markdown = build_report_markdown(
+        snapshot_payload,
+        financial_payload,
+        system_activity_payload,
+        sources_payload,
+        charts_payload,
+        chart_paths,
+    )
+    report_path = write_report_file(markdown)
+    return markdown, report_path, chart_paths, chart_message
+
+
 def format_text_table(rows: list[dict[str, str]]) -> str:
     if not rows:
         return "No expense rows were returned by the API."
@@ -610,18 +985,53 @@ def render_markdown(intent: str, tool_name: str, question: str, payload: Any) ->
 
 def main() -> int:
     args = parse_args()
-    intent, tool_name = detect_request(args.question)
+    question = " ".join(args.question).strip()
+    charts_requested = args.charts or args.report
+
+    if args.report and question:
+        raise RuntimeError("Use either a question or --report, not both.")
+    if not args.report and not question:
+        raise RuntimeError('A question is required unless --report is used.')
+
+    if args.report:
+        markdown, report_path, chart_paths, chart_message = build_report_bundle(include_charts=True)
+        print(markdown)
+        print(f"Saved report to {report_path}.")
+        if chart_message:
+            print(chart_message)
+        elif chart_paths:
+            print("Generated charts:")
+            for chart_path in chart_paths:
+                print(f"- {chart_path}")
+        return 0
+
+    intent, tool_name = detect_request(question)
     payload = call_agent(tool_name, {})
+    chart_paths: list[str] = []
+    chart_message: str | None = None
+    if charts_requested:
+        charts_payload = call_agent("get_people_charts", {"granularity": "month"})
+        chart_paths, chart_message = generate_chart_images(charts_payload)
 
     if args.raw:
         print(json.dumps(payload, indent=2))
+        if chart_message:
+            print(chart_message, file=sys.stderr)
+        elif chart_paths:
+            print("Generated charts:", file=sys.stderr)
+            for chart_path in chart_paths:
+                print(f"- {chart_path}", file=sys.stderr)
         return 0
 
-    if args.report:
-        print(render_markdown(intent, tool_name, args.question, payload))
-        return 0
-
-    print(render_cli(intent, tool_name, args.question, payload))
+    print(render_cli(intent, tool_name, question, payload))
+    if chart_message:
+        print("")
+        print(chart_message)
+    elif chart_paths:
+        print("")
+        print("Charts")
+        for chart_path in chart_paths:
+            print(f"- {chart_path}")
     return 0
 
 
