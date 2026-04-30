@@ -543,6 +543,138 @@ def format_markdown_table(rows: list[dict[str, str]]) -> str:
     return "\n".join((header, divider, body))
 
 
+def runway_warning_summary(runway_warning: dict[str, Any] | None) -> str | None:
+    summary = first_text(runway_warning, ("reason",)) or first_text(runway_warning, ("title",))
+    if not summary:
+        return None
+    if summary.endswith((".", "!", "?")):
+        return summary
+    return f"{summary}."
+
+
+def is_very_low_cash_balance(
+    cash_balance: float | None,
+    burn_amount: float | None,
+    runway_months: float | None,
+) -> bool:
+    if cash_balance is None:
+        return False
+    if cash_balance <= 0:
+        return True
+    if burn_amount is not None and burn_amount > 0 and cash_balance < burn_amount:
+        return True
+    if runway_months is not None and runway_months < 1:
+        return True
+    return cash_balance < 1000
+
+
+def action_item(problem: str, action: str) -> str:
+    return f"{problem} → {action}"
+
+
+def find_uncategorized_expense(top_expenses: list[dict[str, str]]) -> dict[str, str] | None:
+    for row in top_expenses:
+        label = normalize_text(row.get("Expense"))
+        if "uncategorized expense" in label.lower():
+            return row
+    return None
+
+
+def build_immediate_takeaway(
+    snapshot: dict[str, Any],
+    financial: dict[str, Any],
+    top_expenses: list[dict[str, str]],
+) -> str:
+    urgent = is_very_low_cash_balance(
+        snapshot["cash_balance"],
+        snapshot["burn_amount"],
+        snapshot["runway_months"],
+    )
+    low_runway = snapshot["runway_months"] is not None and snapshot["runway_months"] < 1
+
+    if urgent or low_runway:
+        risk_signals: list[str] = []
+        if low_runway:
+            risk_signals.append(f"runway is {format_runway(snapshot['runway_months'])}")
+        if snapshot["cash_balance"] is not None and urgent:
+            risk_signals.append(f"cash balance is {format_currency(snapshot['cash_balance'])}")
+        summary = " and ".join(risk_signals) or "cash is critically tight"
+        takeaway = f"Cash is critically tight: {summary}."
+        if financial["net_amount"] is not None and financial["net_amount"] < 0:
+            return (
+                f"{takeaway} Net position is {format_currency(financial['net_amount'])}, "
+                "so cut nonessential spend and lock a funding or collections plan this week."
+            )
+        return f"{takeaway} Cut nonessential spend and confirm near-term funding or collections this week."
+
+    takeaway = f"Cash covers {format_runway(snapshot['runway_months'])} at the current burn rate."
+    if financial["net_amount"] is not None and financial["net_amount"] < 0:
+        return (
+            f"{takeaway} Net position is {format_currency(financial['net_amount'])}, "
+            "so focus this week on improving cash efficiency and tightening the largest expense lines."
+        )
+    if top_expenses:
+        largest = top_expenses[0]
+        return (
+            f"{takeaway} The largest reported expense line is "
+            f"{largest['Expense']} at {largest['Amount']}, so review it first."
+        )
+    return f"{takeaway} Keep pressure on spend discipline this week."
+
+
+def build_weekly_priorities(
+    snapshot: dict[str, Any],
+    financial: dict[str, Any],
+    top_expenses: list[dict[str, str]],
+    *,
+    limit: int = 5,
+) -> list[str]:
+    priorities: list[str] = []
+    seen: set[str] = set()
+
+    def add(message: str | None) -> None:
+        if not message or message in seen or len(priorities) >= limit:
+            return
+        seen.add(message)
+        priorities.append(message)
+
+    low_runway = snapshot["runway_months"] is not None and snapshot["runway_months"] < 1
+    urgent_cash = is_very_low_cash_balance(
+        snapshot["cash_balance"],
+        snapshot["burn_amount"],
+        snapshot["runway_months"],
+    )
+
+    if low_runway:
+        add(f"Cut or defer spend immediately to extend runway beyond {format_runway(snapshot['runway_months'])}.")
+    if urgent_cash:
+        add(f"Build a 7-day cash plan around the current {format_currency(snapshot['cash_balance'])} balance.")
+    if financial["net_amount"] is not None and financial["net_amount"] < 0:
+        add(f"Close the {format_currency(financial['net_amount'])} net gap by matching spend to confirmed cash in.")
+
+    uncategorized = find_uncategorized_expense(top_expenses)
+    if uncategorized:
+        label = normalize_text(uncategorized.get("Expense")) or "Uncategorized Expense"
+        amount = uncategorized.get("Amount", "Unavailable")
+        add(f"Review the {amount} {label} line and recategorize or stop anything nonessential.")
+
+    for row in top_expenses:
+        label = normalize_text(row.get("Expense"))
+        if not label or (uncategorized and row is uncategorized):
+            continue
+        amount = row.get("Amount", "Unavailable")
+        add(f"Review {label} at {amount} and confirm it is required this month.")
+
+    if len(priorities) < 3 and snapshot["burn_amount"] is not None:
+        add(f"Recheck the current burn rate of {format_currency(snapshot['burn_amount'])}/month against next-month commitments.")
+    if len(priorities) < 3 and snapshot["cash_balance"] is not None:
+        add(f"Check every near-term payment against the current cash balance of {format_currency(snapshot['cash_balance'])}.")
+    if not priorities:
+        add("Monitor cash, net, and the largest expense lines for any new deterioration.")
+
+    return priorities[:limit]
+
+
 def render_recent_activity(payload: Any, limit: int = DEFAULT_ACTIVITY_LIMIT) -> list[str]:
     events = find_list_of_dicts(display_payload(payload), {"events", "items", "activity"})
     if not events:
@@ -641,6 +773,98 @@ def render_attention_items(financial_payload: Any, sources_payload: Any, system_
             break
 
     return items[:limit] or ["No explicit warnings were found in the API response."]
+
+
+def build_report_attention_items(
+    snapshot_payload: Any,
+    financial_payload: Any,
+    sources_payload: Any,
+    system_activity_payload: Any,
+    top_expenses: list[dict[str, str]],
+    *,
+    limit: int = 6,
+) -> list[str]:
+    snapshot = people_snapshot_details(snapshot_payload)
+    financial = financial_state_details(financial_payload)
+    items: list[str] = []
+    seen: set[str] = set()
+
+    def add(message: str | None) -> None:
+        if not message or message in seen or len(items) >= limit:
+            return
+        seen.add(message)
+        items.append(message)
+
+    runway_warning = runway_warning_summary(snapshot["runway_warning"])
+    if runway_warning:
+        add(
+            action_item(
+                f"Critical runway: {runway_warning}",
+                "Finalize a same-week cash preservation plan and confirm funding or collections timing.",
+            )
+        )
+
+    if is_very_low_cash_balance(
+        snapshot["cash_balance"],
+        snapshot["burn_amount"],
+        snapshot["runway_months"],
+    ):
+        add(
+            action_item(
+                f"Low cash balance: {format_currency(snapshot['cash_balance'])}",
+                "Pause nonessential spend and verify the next 7 days of cash commitments.",
+            )
+        )
+
+    if financial["net_amount"] is not None and financial["net_amount"] < 0:
+        add(
+            action_item(
+                f"Negative net: {format_currency(financial['net_amount'])}",
+                "Cut the fastest discretionary costs and match this week's outflows to confirmed cash in.",
+            )
+        )
+
+    uncategorized = find_uncategorized_expense(top_expenses)
+    if uncategorized:
+        top_expense_label = normalize_text(uncategorized.get("Expense"))
+        add(
+            action_item(
+                f"High uncategorized expense: {top_expense_label} at {uncategorized.get('Amount', 'Unavailable')}",
+                "Review and recategorize this line so cost controls target the right bucket.",
+            )
+        )
+
+    for source in find_list_of_dicts(display_payload(sources_payload), {"sources", "items"}):
+        name = normalize_text(source.get("display_name") or source.get("name") or source.get("source")) or "Unknown source"
+        connected = source.get("connected")
+        health = normalize_text(source.get("health")).lower()
+        ingest_status = normalize_text(source.get("ingest_status")).lower()
+
+        if connected is False:
+            add(action_item(f"{name}: connection is incomplete.", "Reconnect the source and rerun ingestion."))
+        elif health in {"blocked", "review", "warning", "unknown"}:
+            add(action_item(f"{name}: health is {health}.", "Resolve the source issue before relying on this data."))
+        elif ingest_status in {"failed", "error", "blocked", "warning", "pending"}:
+            add(action_item(f"{name}: ingest status is {ingest_status}.", "Rerun or repair the ingest so this report uses current data."))
+
+        if len(items) >= limit:
+            return items[:limit]
+
+    for event_line in render_recent_activity(system_activity_payload, limit=limit):
+        lower_line = event_line.lower()
+        if "warning" not in lower_line and "(failed)" not in lower_line and "(error)" not in lower_line:
+            continue
+        message = event_line[2:] if event_line.startswith("- ") else event_line
+        add(action_item(message, "Resolve the failed workflow and confirm the next successful run."))
+        if len(items) >= limit:
+            break
+
+    return items[:limit] or [
+        action_item(
+            "No high-signal attention items were detected from the current read surfaces.",
+            "Keep monitoring cash, net, and spend trends for changes.",
+        )
+    ]
 
 
 def chart_payload_details(payload: Any) -> dict[str, Any]:
@@ -773,10 +997,22 @@ def build_report_markdown(
     financial = financial_state_details(financial_payload)
     top_expenses = normalize_expense_rows(financial_payload)[:5]
     recent_activity = render_recent_activity(system_activity_payload)
-    attention_items = render_attention_items(financial_payload, sources_payload, system_activity_payload)
+    attention_items = build_report_attention_items(
+        snapshot_payload,
+        financial_payload,
+        sources_payload,
+        system_activity_payload,
+        top_expenses,
+    )
+    weekly_priorities = build_weekly_priorities(snapshot, financial, top_expenses)
+    immediate_takeaway = build_immediate_takeaway(snapshot, financial, top_expenses)
 
     lines = [
         "# Preconfin CFO Report",
+        "",
+        "## 🔴 Immediate Takeaway",
+        "",
+        f"- {immediate_takeaway}",
         "",
         "## Executive Summary",
         "",
@@ -823,6 +1059,8 @@ def build_report_markdown(
     lines.extend(recent_activity)
     lines.extend(["", "## Needs Attention", ""])
     lines.extend(f"- {item}" for item in attention_items)
+    lines.extend(["", "## This Week’s Priorities", ""])
+    lines.extend(f"- {item}" for item in weekly_priorities)
     lines.extend(["", "## Charts", ""])
     for chart_path in chart_paths:
         label = Path(chart_path).stem.replace("_", " ").title()

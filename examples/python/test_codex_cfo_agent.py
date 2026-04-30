@@ -129,10 +129,36 @@ class ReportFormattingTests(unittest.TestCase):
             ],
         )
 
-        self.assertIn("- Critical runway: Runway is critically short at 0.1 months. Reduce burn or raise capital immediately.", markdown)
-        self.assertIn("- Low cash balance: $12.20", markdown)
-        self.assertIn("- Negative net: -$1,278.41", markdown)
-        self.assertIn("- High uncategorized expense: Uncategorized Expense at $3,370.39", markdown)
+        self.assertIn("## 🔴 Immediate Takeaway", markdown)
+        self.assertIn("- Cash is critically tight: runway is 0.1 months and cash balance is $12.20.", markdown)
+        self.assertIn("Net position is -$1,278.41, so cut nonessential spend and lock a funding or collections plan this week.", markdown)
+
+        self.assertIn(
+            "- Critical runway: Runway is critically short at 0.1 months. Reduce burn or raise capital immediately. → Finalize a same-week cash preservation plan and confirm funding or collections timing.",
+            markdown,
+        )
+        self.assertIn(
+            "- Low cash balance: $12.20 → Pause nonessential spend and verify the next 7 days of cash commitments.",
+            markdown,
+        )
+        self.assertIn(
+            "- Negative net: -$1,278.41 → Cut the fastest discretionary costs and match this week's outflows to confirmed cash in.",
+            markdown,
+        )
+        self.assertIn(
+            "- High uncategorized expense: Uncategorized Expense at $3,370.39 → Review and recategorize this line so cost controls target the right bucket.",
+            markdown,
+        )
+
+        self.assertIn("## This Week’s Priorities", markdown)
+        self.assertIn("- Cut or defer spend immediately to extend runway beyond 0.1 months.", markdown)
+        self.assertIn("- Build a 7-day cash plan around the current $12.20 balance.", markdown)
+        self.assertIn("- Close the -$1,278.41 net gap by matching spend to confirmed cash in.", markdown)
+        self.assertIn(
+            "- Review the $3,370.39 Uncategorized Expense line and recategorize or stop anything nonessential.",
+            markdown,
+        )
+        self.assertIn("- Review AI / Model Spend at $303.12 and confirm it is required this month.", markdown)
 
         self.assertIn("### Cashflow\n![Cashflow](charts/cashflow.png)", markdown)
         self.assertIn(
@@ -147,6 +173,9 @@ class ReportFormattingTests(unittest.TestCase):
         self.assertEqual(markdown.count("![Cashflow](charts/cashflow.png)"), 1)
         self.assertEqual(markdown.count("![Operating Performance](charts/operating_performance.png)"), 1)
         self.assertEqual(markdown.count("![Recurring Revenue](charts/recurring_revenue.png)"), 1)
+        self.assertLess(markdown.index("## 🔴 Immediate Takeaway"), markdown.index("## Executive Summary"))
+        self.assertLess(markdown.index("## Needs Attention"), markdown.index("## This Week’s Priorities"))
+        self.assertLess(markdown.index("## This Week’s Priorities"), markdown.index("## Charts"))
 
 
 if __name__ == "__main__":
