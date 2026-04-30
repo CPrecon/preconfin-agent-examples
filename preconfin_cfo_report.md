@@ -22,6 +22,13 @@
 - Active subscribers: 5
 - As of: 2026-01-19T06:25:34.272891+00:00
 
+## System Status
+
+- Sources connected: 3 / 3
+- Data freshness: current
+- Traceability: verified
+- Traceability note: Unknown
+
 ## Top Expenses
 
 | # | Expense | Amount | Txns |

@@ -23,6 +23,7 @@ REPORT_FILENAME = "preconfin_cfo_report.md"
 CHARTS_DIRNAME = "charts"
 PROBLEM_STATUSES = {"failed", "error", "blocked", "pending", "warning", "review"}
 SOURCE_PROBLEM_HEALTH = {"blocked", "review", "warning", "unknown"}
+CONNECTED_SOURCE_STATUSES = {"connected", "ready", "seeding"}
 QUESTION_ROUTE_MAP = (
     ("burn rate", "burn_rate", "get_people_snapshot"),
     ("top expenses", "top_expenses", "get_financial_state"),
@@ -438,6 +439,67 @@ def financial_state_details(payload: Any) -> dict[str, Any]:
         ),
         "period_start": first_text(period, ("start",)),
         "period_end": first_text(period, ("end",)),
+    }
+
+
+def format_status_value(value: str | None) -> str:
+    return value or "Unknown"
+
+
+def format_count_value(value: float | None) -> str:
+    if value is None:
+        return "Unknown"
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:g}"
+
+
+def system_status_details(financial_payload: Any, sources_payload: Any) -> dict[str, str]:
+    financial_root = display_payload(financial_payload)
+    financial_mapping = financial_root if isinstance(financial_root, dict) else None
+    source_coverage = find_first_dict(financial_root, {"source_coverage"})
+    freshness = find_first_dict(financial_root, {"freshness"})
+    traceability = find_first_dict(financial_root, {"traceability"})
+
+    connected_count = first_number(source_coverage, ("connected_count",))
+    total_count = first_number(source_coverage, ("total_count",))
+    if connected_count is None or total_count is None:
+        sources = find_list_of_dicts(display_payload(sources_payload), {"sources", "items"})
+        if sources:
+            total_count = float(len(sources))
+            connected_like_count = 0
+            for source in sources:
+                if source.get("connected") is True:
+                    connected_like_count += 1
+                    continue
+                status_values = (
+                    normalize_text(source.get("status")).lower(),
+                    normalize_text(source.get("connection_status")).lower(),
+                    normalize_text(source.get("ingest_status")).lower(),
+                    normalize_text(source.get("sync_status")).lower(),
+                    normalize_text(source.get("state")).lower(),
+                )
+                if any(status in CONNECTED_SOURCE_STATUSES for status in status_values if status):
+                    connected_like_count += 1
+            connected_count = float(connected_like_count)
+
+    freshness_status = first_text(freshness, ("freshness_status",))
+    traceability_status = first_text(traceability, ("traceability_status",))
+    traceability_note = first_text(financial_mapping, ("not_ready_reason",)) or first_text(
+        traceability,
+        ("not_ready_reason",),
+    )
+
+    if connected_count is None or total_count is None:
+        sources_connected = "Unknown"
+    else:
+        sources_connected = f"{format_count_value(connected_count)} / {format_count_value(total_count)}"
+
+    return {
+        "sources_connected": sources_connected,
+        "data_freshness": format_status_value(freshness_status),
+        "traceability": format_status_value(traceability_status),
+        "traceability_note": format_status_value(traceability_note),
     }
 
 
@@ -1044,6 +1106,7 @@ def build_report_markdown(
 ) -> str:
     snapshot = people_snapshot_details(snapshot_payload)
     financial = financial_state_details(financial_payload)
+    system_status = system_status_details(financial_payload, sources_payload)
     expense_section_heading, normalized_expenses = expense_section_details(financial_payload)
     top_expenses = normalized_expenses[:5]
     recent_activity = render_recent_activity(system_activity_payload)
@@ -1092,6 +1155,13 @@ def build_report_markdown(
             if snapshot["active_subscribers"] is not None
             else "- Active subscribers: Unavailable",
             f"- As of: {snapshot['as_of'] or 'Unavailable'}",
+            "",
+            "## System Status",
+            "",
+            f"- Sources connected: {system_status['sources_connected']}",
+            f"- Data freshness: {system_status['data_freshness']}",
+            f"- Traceability: {system_status['traceability']}",
+            f"- Traceability note: {system_status['traceability_note']}",
             "",
             f"## {expense_section_heading}",
             "",

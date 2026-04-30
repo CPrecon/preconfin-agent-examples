@@ -105,6 +105,12 @@ class ReportFormattingTests(unittest.TestCase):
             "data": {
                 "net_state": {"net_amount": -1_278.41},
                 "readiness": {"status": "ready"},
+                "source_coverage": {"connected_count": 2, "total_count": 3},
+                "freshness": {"freshness_status": "stale"},
+                "traceability": {
+                    "traceability_status": "partial",
+                    "not_ready_reason": "Billing sync requires approval before vendor detail can be traced.",
+                },
                 "evidence": {
                     "outflow_breakdown": {
                         "category": [
@@ -115,12 +121,21 @@ class ReportFormattingTests(unittest.TestCase):
                 },
             }
         }
+        sources_payload = {
+            "data": {
+                "sources": [
+                    {"name": "Mercury", "status": "connected"},
+                    {"name": "Stripe", "ingest_status": "ready"},
+                    {"name": "Ramp", "status": "blocked"},
+                ]
+            }
+        }
 
         markdown = subject.build_report_markdown(
             snapshot_payload,
             financial_payload,
             {"data": {"activity": []}},
-            {"data": {"sources": []}},
+            sources_payload,
             {},
             [
                 "charts/cashflow.png",
@@ -169,13 +184,55 @@ class ReportFormattingTests(unittest.TestCase):
             "### Recurring Revenue\n![Recurring Revenue](charts/recurring_revenue.png)",
             markdown,
         )
+        self.assertIn("## System Status", markdown)
+        self.assertIn("- Sources connected: 2 / 3", markdown)
+        self.assertIn("- Data freshness: stale", markdown)
+        self.assertIn("- Traceability: partial", markdown)
+        self.assertIn(
+            "- Traceability note: Billing sync requires approval before vendor detail can be traced.",
+            markdown,
+        )
         self.assertNotIn("- [Cashflow](charts/cashflow.png)", markdown)
         self.assertEqual(markdown.count("![Cashflow](charts/cashflow.png)"), 1)
         self.assertEqual(markdown.count("![Operating Performance](charts/operating_performance.png)"), 1)
         self.assertEqual(markdown.count("![Recurring Revenue](charts/recurring_revenue.png)"), 1)
         self.assertLess(markdown.index("## 🔴 Immediate Takeaway"), markdown.index("## Executive Summary"))
+        self.assertLess(markdown.index("## Executive Summary"), markdown.index("## Cash / Burn / Runway Snapshot"))
+        self.assertLess(markdown.index("## Cash / Burn / Runway Snapshot"), markdown.index("## System Status"))
+        self.assertLess(markdown.index("## System Status"), markdown.index("## Top Expenses"))
+        self.assertLess(markdown.index("## Top Expenses"), markdown.index("## Recent Activity"))
+        self.assertLess(markdown.index("## Recent Activity"), markdown.index("## Needs Attention"))
         self.assertLess(markdown.index("## Needs Attention"), markdown.index("## This Week’s Priorities"))
         self.assertLess(markdown.index("## This Week’s Priorities"), markdown.index("## Charts"))
+
+    def test_system_status_falls_back_to_get_sources_counts(self) -> None:
+        markdown = subject.build_report_markdown(
+            {"data": {"people_snapshot": {}}},
+            {
+                "data": {
+                    "freshness": {"freshness_status": "current"},
+                    "traceability": {"traceability_status": "full"},
+                }
+            },
+            {"data": {"activity": []}},
+            {
+                "data": {
+                    "sources": [
+                        {"name": "Mercury", "status": "connected"},
+                        {"name": "Stripe", "connection_status": "ready"},
+                        {"name": "Ramp", "ingest_status": "seeding"},
+                        {"name": "NetSuite", "status": "blocked"},
+                    ]
+                }
+            },
+            {},
+            [],
+        )
+
+        self.assertIn("- Sources connected: 3 / 4", markdown)
+        self.assertIn("- Data freshness: current", markdown)
+        self.assertIn("- Traceability: full", markdown)
+        self.assertIn("- Traceability note: Unknown", markdown)
 
 
 if __name__ == "__main__":
