@@ -34,13 +34,18 @@
 
 ## Needs Attention
 
+- Critical runway: Runway is critically short at 0.1 months. Reduce burn or raise capital immediately.
+- Low cash balance: $12.20
 - Negative net: -$1,278.41
+- High uncategorized expense: Uncategorized Expense at $3,370.39
 
 ## Charts
 
-- [Cashflow](charts/cashflow.png)
+### Cashflow
 ![Cashflow](charts/cashflow.png)
-- [Operating Performance](charts/operating_performance.png)
+
+### Operating Performance
 ![Operating Performance](charts/operating_performance.png)
-- [Recurring Revenue](charts/recurring_revenue.png)
+
+### Recurring Revenue
 ![Recurring Revenue](charts/recurring_revenue.png)

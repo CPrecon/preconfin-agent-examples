@@ -637,6 +637,22 @@ def runway_warning_summary(runway_warning: dict[str, Any] | None) -> str | None:
     return f"{summary}."
 
 
+def is_very_low_cash_balance(
+    cash_balance: float | None,
+    burn_amount: float | None,
+    runway_months: float | None,
+) -> bool:
+    if cash_balance is None:
+        return False
+    if cash_balance <= 0:
+        return True
+    if burn_amount is not None and burn_amount > 0 and cash_balance < burn_amount:
+        return True
+    if runway_months is not None and runway_months < 1:
+        return True
+    return cash_balance < 1000
+
+
 def render_recent_activity(payload: Any, limit: int = DEFAULT_ACTIVITY_LIMIT) -> list[str]:
     events = find_list_of_dicts(display_payload(payload), {"events", "items", "activity"})
     if not events:
@@ -694,6 +710,72 @@ def render_attention_items(
             break
 
     return items[:limit] or ["No explicit warnings were found in the API response."]
+
+
+def build_report_attention_items(
+    snapshot_payload: Any,
+    financial_payload: Any,
+    sources_payload: Any,
+    system_activity_payload: Any,
+    top_expenses: list[dict[str, str]],
+    *,
+    limit: int = 6,
+) -> list[str]:
+    snapshot = people_snapshot_details(snapshot_payload)
+    financial = financial_state_details(financial_payload)
+    items: list[str] = []
+    seen: set[str] = set()
+
+    def add(message: str | None) -> None:
+        if not message or message in seen or len(items) >= limit:
+            return
+        seen.add(message)
+        items.append(message)
+
+    runway_warning = runway_warning_summary(snapshot["runway_warning"])
+    if runway_warning:
+        add(f"Critical runway: {runway_warning}")
+
+    if is_very_low_cash_balance(
+        snapshot["cash_balance"],
+        snapshot["burn_amount"],
+        snapshot["runway_months"],
+    ):
+        add(f"Low cash balance: {format_currency(snapshot['cash_balance'])}")
+
+    if financial["net_amount"] is not None and financial["net_amount"] < 0:
+        add(f"Negative net: {format_currency(financial['net_amount'])}")
+
+    if top_expenses:
+        top_expense_label = normalize_text(top_expenses[0].get("Expense"))
+        if "uncategorized expense" in top_expense_label.lower():
+            add(f"High uncategorized expense: {top_expense_label} at {top_expenses[0].get('Amount', 'Unavailable')}")
+
+    for source in find_list_of_dicts(display_payload(sources_payload), {"sources", "items"}):
+        name = normalize_text(source.get("display_name") or source.get("name") or source.get("source")) or "Unknown source"
+        connected = source.get("connected")
+        health = normalize_text(source.get("health")).lower()
+        ingest_status = normalize_text(source.get("ingest_status")).lower()
+
+        if connected is False:
+            add(f"{name}: connection is incomplete.")
+        elif health in SOURCE_PROBLEM_HEALTH:
+            add(f"{name}: health is {health}.")
+        elif ingest_status in PROBLEM_STATUSES:
+            add(f"{name}: ingest status is {ingest_status}.")
+
+        if len(items) >= limit:
+            return items[:limit]
+
+    for event_line in render_recent_activity(system_activity_payload, limit=limit):
+        lower_line = event_line.lower()
+        if "warning" not in lower_line and "(failed)" not in lower_line and "(error)" not in lower_line:
+            continue
+        add(event_line[2:] if event_line.startswith("- ") else event_line)
+        if len(items) >= limit:
+            break
+
+    return items[:limit] or ["No high-signal attention items were detected from the current read surfaces."]
 
 
 def chart_payload_details(payload: Any) -> dict[str, Any]:
@@ -832,7 +914,13 @@ def build_report_markdown(
     expense_section_heading, normalized_expenses = expense_section_details(financial_payload)
     top_expenses = normalized_expenses[:5]
     recent_activity = render_recent_activity(system_activity_payload)
-    attention_items = render_attention_items(financial_payload, sources_payload, system_activity_payload)
+    attention_items = build_report_attention_items(
+        snapshot_payload,
+        financial_payload,
+        sources_payload,
+        system_activity_payload,
+        top_expenses,
+    )
 
     lines = [
         "# Preconfin CFO Report",
@@ -878,10 +966,15 @@ def build_report_markdown(
     lines.extend(["", "## Needs Attention", ""])
     lines.extend(f"- {item}" for item in attention_items)
     lines.extend(["", "## Charts", ""])
-    for chart_path in chart_paths:
-        label = Path(chart_path).stem.replace("_", " ").title()
-        lines.append(f"- [{label}]({chart_path})")
+    chart_lookup = {Path(chart_path).stem: chart_path for chart_path in chart_paths}
+    for chart_name, spec in CHART_SPECS.items():
+        chart_path = chart_lookup.get(chart_name)
+        if not chart_path:
+            continue
+        label = spec["title"]
+        lines.append(f"### {label}")
         lines.append(f"![{label}]({chart_path})")
+        lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
 
