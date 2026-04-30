@@ -503,38 +503,6 @@ def extract_attention_items(payload: Any, limit: int = 6) -> list[str]:
     return items[:limit]
 
 
-def candidate_expense_tables(payload: Any) -> list[tuple[int, list[dict[str, Any]]]]:
-    root = display_payload(payload)
-    label_keys = {"label", "name", "merchant", "category", "vendor", "description", "title", "pnl_bucket"}
-    amount_keys = {"amount", "amount_cents", "spend", "spend_cents", "expenses", "expense", "total", "total_cents", "value"}
-    key_bonus = {
-        "top_expenses": 5,
-        "expenses": 4,
-        "rows": 3,
-        "items": 2,
-        "category": 2,
-        "merchant": 2,
-    }
-    tables: list[tuple[int, list[dict[str, Any]]]] = []
-
-    for node in iter_nodes(root):
-        if not isinstance(node, dict):
-            continue
-        for key, value in node.items():
-            if not isinstance(value, list) or not value or not all(isinstance(item, dict) for item in value):
-                continue
-            score = key_bonus.get(normalize_text(key).lower(), 0)
-            sample = value[:5]
-            if any(any(field in item for field in label_keys) for item in sample):
-                score += 3
-            if any(any(field in item for field in amount_keys) for item in sample):
-                score += 4
-            if score > 0:
-                tables.append((score, value))
-
-    return sorted(tables, key=lambda item: item[0], reverse=True)
-
-
 def amount_from_row(row: dict[str, Any]) -> float | None:
     for cents_key in ("amount_cents", "spend_cents", "total_cents"):
         amount = cents_to_dollars(row.get(cents_key))
@@ -543,33 +511,130 @@ def amount_from_row(row: dict[str, Any]) -> float | None:
     return first_number(row, ("amount", "spend", "expenses", "expense", "total", "value"))
 
 
-def normalize_expense_rows(payload: Any) -> list[dict[str, str]]:
-    tables = candidate_expense_tables(payload)
-    if not tables:
-        return []
+def outflow_breakdown_details(payload: Any) -> dict[str, Any]:
+    root = display_payload(payload)
+    if isinstance(root, dict):
+        evidence = root.get("evidence")
+        if isinstance(evidence, dict) and isinstance(evidence.get("outflow_breakdown"), dict):
+            return evidence["outflow_breakdown"]
+    found = find_first_dict(root, {"outflow_breakdown"})
+    return found if isinstance(found, dict) else {}
 
-    rows = tables[0][1]
-    normalized_rows: list[dict[str, str]] = []
+
+def list_of_dict_rows(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if isinstance(value, dict):
+        for key in ("rows", "items", "data", "values"):
+            rows = value.get(key)
+            if isinstance(rows, list):
+                normalized_rows = [item for item in rows if isinstance(item, dict)]
+                if normalized_rows:
+                    return normalized_rows
+    return []
+
+
+def named_breakdown_rows(breakdown: dict[str, Any], keys: tuple[str, ...]) -> list[dict[str, Any]]:
+    for key in keys:
+        rows = list_of_dict_rows(breakdown.get(key))
+        if rows:
+            return rows
+
+    for node in iter_nodes(breakdown):
+        if not isinstance(node, dict):
+            continue
+        for key, value in node.items():
+            if normalize_text(key).lower() not in keys:
+                continue
+            rows = list_of_dict_rows(value)
+            if rows:
+                return rows
+    return []
+
+
+def normalize_outflow_rows(
+    rows: list[dict[str, Any]],
+    *,
+    label_keys: tuple[str, ...],
+    default_label: str,
+) -> list[dict[str, str]]:
+    normalized_entries: list[dict[str, Any]] = []
     for index, row in enumerate(rows, start=1):
-        label = (
-            first_text(row, ("label", "name", "merchant", "category", "vendor", "description", "title", "pnl_bucket"))
-            or f"Item {index}"
-        )
-        amount = format_currency(amount_from_row(row))
+        amount_value = amount_from_row(row)
+        label = first_text(row, label_keys) or f"{default_label} {index}"
         txn_count = first_number(row, ("txn_count", "count"))
         percentage = first_number(row, ("pct_of_total", "pct_of_revenue", "share", "percent"))
+        normalized_entries.append(
+            {
+                "label": label,
+                "amount_value": amount_value,
+                "amount": format_currency(amount_value),
+                "txn_count": txn_count,
+                "percentage": percentage,
+            }
+        )
 
+    nonzero_entries = [
+        entry for entry in normalized_entries if entry["amount_value"] is not None and entry["amount_value"] != 0
+    ]
+    display_entries = nonzero_entries if nonzero_entries else normalized_entries
+    display_entries = sorted(
+        display_entries,
+        key=lambda entry: abs(entry["amount_value"]) if entry["amount_value"] is not None else -1,
+        reverse=True,
+    )
+
+    formatted_rows: list[dict[str, str]] = []
+    for index, entry in enumerate(display_entries, start=1):
         normalized = {
             "#": str(index),
-            "Expense": label,
-            "Amount": amount,
+            "Expense": entry["label"],
+            "Amount": entry["amount"],
         }
+        txn_count = entry["txn_count"]
         if txn_count is not None:
             normalized["Txns"] = str(int(txn_count)) if txn_count.is_integer() else f"{txn_count:.2f}"
+        percentage = entry["percentage"]
         if percentage is not None:
             normalized["Pct"] = f"{percentage:.1f}%"
-        normalized_rows.append(normalized)
-    return normalized_rows
+        formatted_rows.append(normalized)
+    return formatted_rows
+
+
+def expense_section_details(payload: Any) -> tuple[str, list[dict[str, str]]]:
+    outflow_breakdown = outflow_breakdown_details(payload)
+    category_rows = named_breakdown_rows(outflow_breakdown, ("category", "categories"))
+    if category_rows:
+        return (
+            "Top Expenses",
+            normalize_outflow_rows(
+                category_rows,
+                label_keys=("category", "label", "name", "description", "title", "pnl_bucket"),
+                default_label="Category",
+            ),
+        )
+
+    merchant_rows = named_breakdown_rows(outflow_breakdown, ("merchant", "merchants"))
+    if merchant_rows:
+        return (
+            "Top Expense Merchants",
+            normalize_outflow_rows(
+                merchant_rows,
+                label_keys=("merchant", "vendor", "label", "name", "description", "title"),
+                default_label="Merchant",
+            ),
+        )
+
+    return "Top Expenses", []
+
+
+def runway_warning_summary(runway_warning: dict[str, Any] | None) -> str | None:
+    summary = first_text(runway_warning, ("reason",)) or first_text(runway_warning, ("title",))
+    if not summary:
+        return None
+    if summary.endswith((".", "!", "?")):
+        return summary
+    return f"{summary}."
 
 
 def render_recent_activity(payload: Any, limit: int = DEFAULT_ACTIVITY_LIMIT) -> list[str]:
@@ -764,7 +829,8 @@ def build_report_markdown(
 ) -> str:
     snapshot = people_snapshot_details(snapshot_payload)
     financial = financial_state_details(financial_payload)
-    top_expenses = normalize_expense_rows(financial_payload)[:5]
+    expense_section_heading, normalized_expenses = expense_section_details(financial_payload)
+    top_expenses = normalized_expenses[:5]
     recent_activity = render_recent_activity(system_activity_payload)
     attention_items = render_attention_items(financial_payload, sources_payload, system_activity_payload)
 
@@ -783,14 +849,7 @@ def build_report_markdown(
     if top_expenses:
         lines.append(f"- Largest reported expense line: {top_expenses[0]['Expense']} at {top_expenses[0]['Amount']}")
     if snapshot["runway_warning"]:
-        warning = " ".join(
-            part
-            for part in (
-                first_text(snapshot["runway_warning"], ("title",)),
-                first_text(snapshot["runway_warning"], ("reason",)),
-            )
-            if part
-        )
+        warning = runway_warning_summary(snapshot["runway_warning"])
         if warning:
             lines.append(f"- Runway warning: {warning}")
 
@@ -807,7 +866,7 @@ def build_report_markdown(
             else "- Active subscribers: Unavailable",
             f"- As of: {snapshot['as_of'] or 'Unavailable'}",
             "",
-            "## Top Expenses",
+            f"## {expense_section_heading}",
             "",
             format_markdown_table(top_expenses),
             "",
@@ -897,8 +956,8 @@ def render_cli(intent: str, tool_name: str, question: str, payload: Any) -> str:
     ]
 
     if intent == "top_expenses":
-        rows = normalize_expense_rows(payload)
-        lines.append("Top Expenses")
+        heading, rows = expense_section_details(payload)
+        lines.append(heading)
         lines.append(format_text_table(rows))
         warnings = extract_attention_items(payload, limit=4)
         if warnings:
@@ -954,8 +1013,8 @@ def render_markdown(intent: str, tool_name: str, question: str, payload: Any) ->
             lines.append(f"- Note: {details['unavailable_reason']}")
 
     elif intent == "top_expenses":
-        rows = normalize_expense_rows(payload)
-        lines.append("## Top Expenses")
+        heading, rows = expense_section_details(payload)
+        lines.append(f"## {heading}")
         lines.append("")
         lines.append(format_markdown_table(rows))
 

@@ -122,6 +122,17 @@ def normalize_text(value: Any) -> str:
     return " ".join(str(value or "").strip().split())
 
 
+def runway_warning_summary(runway_warning: dict[str, Any] | None) -> str | None:
+    if not isinstance(runway_warning, dict):
+        return None
+    summary = normalize_text(runway_warning.get("reason")) or normalize_text(runway_warning.get("title"))
+    if not summary:
+        return None
+    if summary.endswith((".", "!", "?")):
+        return summary
+    return f"{summary}."
+
+
 def amount_cents_to_dollars(value: Any) -> float | None:
     if isinstance(value, (int, float)):
         return float(value) / 100.0
@@ -165,12 +176,9 @@ def render_financial_summary(financial_state: dict[str, Any], people_snapshot_pa
         f"- As of: {as_of}",
     ]
 
-    if isinstance(runway_warning, dict):
-        warning_title = normalize_text(runway_warning.get("title"))
-        warning_reason = normalize_text(runway_warning.get("reason"))
-        warning_text = " ".join(part for part in (warning_title, warning_reason) if part)
-        if warning_text:
-            summary.append(f"- Warning: {warning_text}")
+    warning_text = runway_warning_summary(runway_warning if isinstance(runway_warning, dict) else None)
+    if warning_text:
+        summary.append(f"- Warning: {warning_text}")
 
     return summary
 
